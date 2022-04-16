@@ -48,7 +48,7 @@ static xQueueHandle gpio_evt_queue = NULL;
 #define LEDC_DUTY         	   (4000)
 #define LEDC_FADE_TIME    	   (2000)
 
-
+TaskHandle_t xHandle;
 uint8_t enable = 0;
 
 static void IRAM_ATTR gpio_isr_handler(void* arg)
@@ -64,7 +64,10 @@ static void gpio_task_example(void* arg)
         if(xQueueReceive(gpio_evt_queue, &io_num, portMAX_DELAY)) {
             printf("GPIO[%d] intr, val: %d\n", io_num, gpio_get_level(io_num));
             if(io_num == 18){
-            	enable = !enable;
+            	enable += 1;
+            	if(enable == 10){
+            		enable = 0;
+            	}
             }
         }
     }
@@ -167,7 +170,12 @@ void temperature_handle(void *pvParameters)
         	gpio_set_level(Buzzer_GPIO, 0);
         }
         
+        //LED_fade task control depending on thermocouple temperature
+        if(enable >= 5 && enable <=8){
+        	vTaskResume( xHandle );
+        }
 
+       printf("Button pressed: %d\n", enable);
        //printf("Thermocouple temperature: %d C\n",   thermocouple_temp);
        vTaskDelayUntil(&xLastWakeTime, xDelay500); 
     }
@@ -204,16 +212,27 @@ void led_fade(void *pvParameters)
     ledc_fade_func_install(0);
 
     while (1) {
-        ledc_set_fade_with_time(ledc_channel.speed_mode,
-        ledc_channel.channel, LEDC_DUTY, LEDC_FADE_TIME);
-        ledc_fade_start(ledc_channel.speed_mode,
-        		ledc_channel.channel, LEDC_FADE_NO_WAIT);
-        vTaskDelay(LEDC_FADE_TIME / portTICK_PERIOD_MS);
-        ledc_set_fade_with_time(ledc_channel.speed_mode,
-        ledc_channel.channel, 0, LEDC_FADE_TIME);
-        ledc_fade_start(ledc_channel.speed_mode,
-        		ledc_channel.channel, LEDC_FADE_NO_WAIT);
-        vTaskDelay(LEDC_FADE_TIME / portTICK_PERIOD_MS);
+    	if(enable < 5){
+    		ledc_set_duty(ledc_channel.speed_mode, ledc_channel.channel, 0);
+    	    ledc_update_duty(ledc_channel.speed_mode, ledc_channel.channel);
+    	    vTaskSuspend( xHandle );
+    	}
+    	else if(enable >= 5 && enable <=8){
+			ledc_set_fade_with_time(ledc_channel.speed_mode,
+			ledc_channel.channel, LEDC_DUTY, LEDC_FADE_TIME);
+			ledc_fade_start(ledc_channel.speed_mode,
+					ledc_channel.channel, LEDC_FADE_NO_WAIT);
+			vTaskDelay(LEDC_FADE_TIME / portTICK_PERIOD_MS);
+			ledc_set_fade_with_time(ledc_channel.speed_mode,
+			ledc_channel.channel, 0, LEDC_FADE_TIME);
+			ledc_fade_start(ledc_channel.speed_mode,
+					ledc_channel.channel, LEDC_FADE_NO_WAIT);
+    	}
+    	else{
+    		ledc_set_duty(ledc_channel.speed_mode, ledc_channel.channel, LEDC_DUTY);
+    	    ledc_update_duty(ledc_channel.speed_mode, ledc_channel.channel);
+		}
+    	vTaskDelay(LEDC_FADE_TIME / portTICK_PERIOD_MS);
     }
 
 }
@@ -222,7 +241,7 @@ void app_main(void)
 {
     xTaskCreate(get_ADC_values, "get_ADC_values", 2000, NULL, 2, NULL); //If code crashes check stack depth
     xTaskCreate(temperature_handle, "temperature_handle", 2000, NULL, 1, NULL); //If code crashes check stack depth
-    xTaskCreate(led_fade, "led_fade", 2000, NULL, 3, NULL);
+    xTaskCreate(led_fade, "led_fade", 2000, NULL, 3, &xHandle );
 
     //zero-initialize the config structure.
     gpio_config_t io_conf = {};
