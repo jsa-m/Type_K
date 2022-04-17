@@ -7,3 +7,9 @@
 *.obj
 *.ld
 *.map
+*.bin
+*.elf
+*.map
+*.ninja
+*.log
+build/esp-idf/bt/libbt.a

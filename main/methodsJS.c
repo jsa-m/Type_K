@@ -93,3 +93,32 @@ uint32_t round_temp (uint32_t temp){
     }
 }
 
+//Converts number of 3 digits in char format to int, used to translate data coming from BLE
+uint16_t chartodec(uint8_t d3, uint8_t d2, uint8_t d1){
+	uint16_t dec;
+	if(d3 == 0 && d2 == 0 && d1 == 0){
+		return dec = 0;
+	}
+	else if(d3 == 0 && d2 == 0 && d1 != 0){
+		return dec = d1 - 48;
+	}
+	else if(d3 == 0 && d2 != 0 && d1 == 0){
+		return dec = d2 - 48;
+	}
+	else if(d3 == 0 && d2 != 0 && d1 != 0){
+		return dec = (d2 - 48)*10 + (d1-48);
+	}
+	else if(d3 != 0 && d2 == 0 && d1 == 0){
+		return dec = (d3 - 48);
+	}
+	else if(d3 != 0 && d2 == 0 && d1 != 0){
+		return dec = (d3 - 48)*10 + (d1-48);
+	}
+	else if(d3 != 0 && d2 != 0 && d1 == 0){
+		return dec = (d3 - 48)*10 + (d2-48);
+	}
+	else{
+		return dec = (d3 - 48)*100 + (d2-48)*10 + (d1-48);
+	}
+}
+
