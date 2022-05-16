@@ -1,5 +1,0 @@
-source "C:/Users/joaso/Documents/esp/components/app_update/Kconfig.projbuild"
-source "C:/Users/joaso/Documents/esp/components/bootloader/Kconfig.projbuild"
-source "C:/Users/joaso/Documents/esp/components/esptool_py/Kconfig.projbuild"
-source "C:/Users/joaso/Documents/esp/components/partition_table/Kconfig.projbuild"
-source "C:/Users/joaso/Desktop/Type_K_PCB/Type_K/main/Kconfig.projbuild"
