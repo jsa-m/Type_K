@@ -1,3 +1,32 @@
+/*
+MIT License
+
+Copyright (c) 2022 Joaquin Sopena
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+Electronics project whose aim is to obtain the internal temperature of an object. 
+The project it's based on a type-k thermocouple and it's intended to be use alongside a
+mobile phone. The device sends data via a Bluetooth ble service. In there, the user can view with a rate of
+0.5ms the temperature as well as set an alarm. 
+*/
+
 #include <stdio.h>
 #include <stdlib.h>
 #include "freertos/FreeRTOS.h"
@@ -12,10 +41,8 @@
 #include "esp_system.h"
 #include "esp_log.h"
 #include "nvs_flash.h"
-
 #include "esp_bt.h"
 #include <string.h>
-
 #include "esp_gap_ble_api.h"
 #include "esp_gatts_api.h"
 #include "esp_bt_main.h"
@@ -23,7 +50,7 @@
 #include "esp_gatt_common_api.h"
 
 //#define DEFAULT_VREF 1100   //ESP32 ADC reference voltage is 1.1V
-#define DEFAULT_VREF 1094
+#define DEFAULT_VREF 1096
 
 //ADC VARIABLES
 static const adc_channel_t channelTAmb = ADC_CHANNEL_2;     //GPIO24 ADC2
@@ -34,7 +61,7 @@ static const adc_unit_t unit = ADC_UNIT_2;              //ADC2
 
 static esp_adc_cal_characteristics_t *adc_chars;
 #define NO_OF_SAMPLES   50          //Multisampling
-#define GAIN_INA122P    145
+#define GAIN_INA122P    148
 
 //GLOBAL VARIABLES
 uint32_t thermocouple_uV = 0,  adc_reading_Thermocouple_raw = 0;     //_raw used as a control bit if it is 2 or less thermocuple_temp = 0ºC
@@ -59,10 +86,10 @@ static xQueueHandle gpio_evt_queue = NULL;
 #define LEDC_HS_CH0_CHANNEL    LEDC_CHANNEL_0
 #endif
 #define LEDC_DUTY         	   (4000)
-#define LEDC_FADE_TIME    	   (2000)
+#define LEDC_FADE_TIME    	   (1500)
 
 TaskHandle_t xHandle;
-uint8_t enable = 0;
+float rdm_var;
 
 
 //BLE START-------------------------------------------------------------------------------------------------------------
@@ -574,10 +601,9 @@ static void gpio_task_example(void* arg)
         if(xQueueReceive(gpio_evt_queue, &io_num, portMAX_DELAY)) {
             printf("GPIO[%d] intr, val: %d\n", io_num, gpio_get_level(io_num));
             if(io_num == 18){
-            	enable += 1;
-            	if(enable == 10){
-            		enable = 0;
-            	}
+            	ble_received_c0 = 0;
+            	ble_received_c1 = 0;
+            	ble_received_c2 = 0;
             }
         }
     }
@@ -623,12 +649,12 @@ void get_ADC_values(void *pvParameters)
         //Convert adc_reading to voltage in mV
         //Now the ambient temperature is obtained.
         uint32_t voltage_ambient = esp_adc_cal_raw_to_voltage(adc_reading_Tamb, adc_chars);
-        thermocouple_uV = ((esp_adc_cal_raw_to_voltage(adc_reading_Thermocouple_raw, adc_chars) * 1000) / GAIN_INA122P);
-        ambient_temp = ((voltage_ambient - 500) / 10) - 6; //Value in degrees with respect to zero
+        thermocouple_uV = ((esp_adc_cal_raw_to_voltage(adc_reading_Thermocouple_raw, adc_chars) * 1000) / GAIN_INA122P) - 864;	//when adc captures 0 adc_cal_row to voltage gives 0.864 mv
+        ambient_temp = ((voltage_ambient - 500) / 10) - 8; //Value in degrees with respect to zero
         if (cnt == 4)
         {
-            printf("Voltage: %d\t Ambient temperature: %d C \n", adc_reading_Tamb, ambient_temp);
-            //printf("Raw: %d\tThermocuple voltage: %duV\n", adc_reading_Thermocouple_raw, thermocouple_uV);
+            //printf("Voltage: %d\t Ambient temperature: %d C \n", adc_reading_Tamb, ambient_temp);
+            printf("Raw: %d\tThermocuple voltage: %duV\n", adc_reading_Thermocouple_raw, thermocouple_uV);
             cnt = 0;
         }
 
@@ -641,11 +667,10 @@ void temperature_handle(void *pvParameters)
     /* Task that obtains temperatures from the thermocouple applying software compensation of the
     cold junction every 0.5seconds also an alarm is programmed to beep if the temperature surpass
     a set point and a led also indicates if the temperature is close to the setpoint. */
-    const TickType_t xDelay1000 = pdMS_TO_TICKS(1000);
+    const TickType_t xDelay500 = pdMS_TO_TICKS(500);
     TickType_t xLastWakeTime;
     xLastWakeTime = xTaskGetTickCount();
     uint8_t a = 1;
-	uint8_t rdm_var;
 	char str[8];
 	srand(2);
 	esp_err_t error_ble_ind;
@@ -666,7 +691,7 @@ void temperature_handle(void *pvParameters)
         }
 
         //TEST BUZZER
-        if(enable == 1){
+        if((ble_received != 0) && (thermocouple_temp > (ble_received + 20)) ){
 
         if(a == 1)
         {
@@ -685,30 +710,33 @@ void temperature_handle(void *pvParameters)
         }
         
         //LED_fade task control depending on thermocouple temperature
-        if(enable >= 5 && enable <=8){
+        if(thermocouple_temp > (ble_received - 20)){
         	vTaskResume( xHandle );
         }
 
-       printf("Button pressed: %d\n", enable);
-       //printf("Thermocouple temperature: %d C\n",   thermocouple_temp);
+       //printf("Button pressed \n");
+       printf("Thermocouple temperature: %d C\n",   thermocouple_temp);
 
-       rdm_var = rand() % 100 + 1;
-       		sprintf(str, "%d", rdm_var);
-       		error_ble_ind = esp_ble_gatts_send_indicate(TC_K_profile_tab[PROFILE_APP_IDX].gatts_if,
-       											TC_K_profile_tab[PROFILE_APP_IDX].conn_id,
-       											TC_K_handle_table[IDX_CHAR_VAL_A],
-       		                                    sizeof(str),
-       											&str,
-       		                                    false);
+       //rdm_var = rdm_var + 1;
+       //if(rdm_var == 150){
+    	//   rdm_var = 0;
+       //}
+		sprintf(str, "%d", thermocouple_temp);
+		error_ble_ind = esp_ble_gatts_send_indicate(TC_K_profile_tab[PROFILE_APP_IDX].gatts_if,
+													TC_K_profile_tab[PROFILE_APP_IDX].conn_id,
+													TC_K_handle_table[IDX_CHAR_VAL_A],
+													sizeof(str),
+													&str,
+													false);
 
        if(error_ble_ind != ESP_OK){
     	   printf("Notify to GATT client has failed \n");
        }
 
 	   ble_received = chartodec(ble_received_c2, ble_received_c1, ble_received_c0);
-		//printf("Value received %d \n", ble_received);
+	   printf("Value received %d \n", ble_received);
 
-       vTaskDelayUntil(&xLastWakeTime, xDelay1000);
+       vTaskDelayUntil(&xLastWakeTime, xDelay500);
     }
 }
 
@@ -744,12 +772,12 @@ void led_fade(void *pvParameters)
     ledc_fade_func_install(0);
 
     while (1) {
-    	if(enable < 5){
+    	if((ble_received == 0 )| (thermocouple_temp < (ble_received - 20)) ){		//LED alarm disable
     		ledc_set_duty(ledc_channel.speed_mode, ledc_channel.channel, 0);
     	    ledc_update_duty(ledc_channel.speed_mode, ledc_channel.channel);
     	    vTaskSuspend( xHandle );
     	}
-    	else if(enable >= 5 && enable <=8){
+    	else if(thermocouple_temp >= (ble_received - 20) && thermocouple_temp < ble_received ){	// LED alarm fade
 			ledc_set_fade_with_time(ledc_channel.speed_mode,
 			ledc_channel.channel, LEDC_DUTY, LEDC_FADE_TIME);
 			ledc_fade_start(ledc_channel.speed_mode,
@@ -760,7 +788,7 @@ void led_fade(void *pvParameters)
 			ledc_fade_start(ledc_channel.speed_mode,
 					ledc_channel.channel, LEDC_FADE_NO_WAIT);
     	}
-    	else{
+    	else if (thermocouple_temp >= ble_received){	//LED alarm ON
     		ledc_set_duty(ledc_channel.speed_mode, ledc_channel.channel, LEDC_DUTY);
     	    ledc_update_duty(ledc_channel.speed_mode, ledc_channel.channel);
 		}
