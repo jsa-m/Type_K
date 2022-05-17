@@ -5,8 +5,7 @@ The user can also send a set point temperature. If the actual temperature is nea
 <p align="center">
 <img src = "images/type_k.jpg" width = 582 height="294">
 </p>
-<br> 
-## BLE
+<br />
 The device uses “standard” BLE services and characteristics, so it will be recognized as an environmental sensing device with the characteristic, Temperature.
 <p align="center">
 <img src = "images/type_k_ble1.jpg" width = 270 height="600">
